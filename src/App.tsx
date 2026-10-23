@@ -28,6 +28,7 @@ import { FirestoreQuotaBanner } from './components/common/FirestoreQuotaBanner';
 import {
   ERPState,
   loadInitialState,
+  cleanAllData,
   saveStateToStorage,
   DEFAULT_TRANSACTIONS,
   calculateWalletBalance,
@@ -361,75 +362,11 @@ export default function App() {
     setDismissedNotifIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
   }, []);
 
-  // Active safeguard on mount: Ensure all verified canonical ledger transactions are present and sorted
+  // Active safeguard on mount: If clean ledger state is active, ensure sync to Firestore
   useEffect(() => {
-    setState((current) => {
-      const existingIds = new Set(current.transactions.map((t) => t.id));
-      const missingCanonical = DEFAULT_TRANSACTIONS.filter((t) => isCanonicalTransactionId(t.id) && !existingIds.has(t.id));
-
-      let hasReceivableUpdate = false;
-      const updatedReceivables = (current.receivables || []).map(r => {
-        if (r.id === 'rcv-20260923-solomon' && r.status !== 'COLLECTED') {
-          hasReceivableUpdate = true;
-          return { ...r, amountCollected: 180, status: 'COLLECTED' as const };
-        }
-        return r;
-      });
-      if (!updatedReceivables.some(r => r.id === 'rcv-20261002-solomon')) {
-        hasReceivableUpdate = true;
-        updatedReceivables.push({
-          id: 'rcv-20261002-solomon',
-          customerName: 'Solomon',
-          description: "Bale'da credit for Solomon",
-          amountOwed: 300,
-          amountCollected: 0,
-          createdDate: '2026-10-02T19:32:00.000Z',
-          dueDate: '2026-10-16T19:32:00.000Z',
-          status: 'OUTSTANDING',
-          walletId: 'w-cash'
-        });
-      }
-      if (!updatedReceivables.some(r => r.id === 'rcv-20261006-solomon-190')) {
-        hasReceivableUpdate = true;
-        updatedReceivables.push({
-          id: 'rcv-20261006-solomon-190',
-          customerName: 'Solomon',
-          description: "Bale'da credit for Solomon",
-          amountOwed: 190,
-          amountCollected: 0,
-          createdDate: '2026-10-06T08:47:00.000Z',
-          dueDate: '2026-10-20T08:47:00.000Z',
-          status: 'OUTSTANDING',
-          walletId: 'w-cash'
-        });
-      }
-
-      let hasTxSplitUpdate = false;
-      const canonicalMap = new Map(DEFAULT_TRANSACTIONS.map(t => [t.id, t]));
-      const refreshedTxs = current.transactions.map(t => {
-        const canonical = canonicalMap.get(t.id);
-        if (canonical?.splits && canonical.splits.length > 0 && (!t.splits || t.splits.length === 0)) {
-          hasTxSplitUpdate = true;
-          return { ...t, splits: canonical.splits };
-        }
-        return t;
-      });
-
-      if (missingCanonical.length > 0 || hasReceivableUpdate || hasTxSplitUpdate) {
-        const updatedTxs = [...missingCanonical, ...refreshedTxs]
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        const next = {
-          ...current,
-          transactions: updatedTxs,
-          receivables: updatedReceivables,
-          deletedEntityIds: (current.deletedEntityIds || []).filter(id => !isCanonicalTransactionId(id))
-        };
-        saveStateToStorage(next);
-        syncStateToFirebaseNow(next);
-        return next;
-      }
-      return current;
-    });
+    if (state.isCleanLedger || state.stateVersion === 100) {
+      syncStateToFirebaseNow(state);
+    }
   }, []);
 
   // Real-time Firebase Firestore Subscription & Chat Notifications
@@ -442,6 +379,14 @@ export default function App() {
 
     const unsubscribe = subscribeToFirebaseState((remoteState) => {
       if (remoteState && typeof remoteState === 'object') {
+        // If remote state in Firestore is from an older legacy demo state, overwrite it with clean state
+        if (!remoteState.isCleanLedger && remoteState.stateVersion !== 100) {
+          const fresh = cleanAllData();
+          syncStateToFirebaseNow(fresh);
+          setState(fresh);
+          return;
+        }
+
         setState(prev => {
           const remoteDeletedIds = (Array.isArray(remoteState.deletedEntityIds) ? remoteState.deletedEntityIds : []).filter(id => !isCanonicalTransactionId(id));
           const localDeletedIds = (Array.isArray(prev.deletedEntityIds) ? prev.deletedEntityIds : []).filter(id => !isCanonicalTransactionId(id));

@@ -362,14 +362,11 @@ export function subscribeToFirebaseState(onUpdate: (remoteState: Partial<ERPStat
           if (data && data.state) {
             const rawState: any = typeof data.state === 'string' ? JSON.parse(data.state) : { ...data.state };
             const rawDeleted = Array.isArray(rawState.deletedEntityIds) ? rawState.deletedEntityIds : [];
-            const deletedTestIds = new Set(rawDeleted.filter((id: string) => !isCanonicalTransactionId(id)));
-            deletedTestIds.add('tx-1790749015154');
-            deletedTestIds.add('tx-1790748931615');
+            const deletedTestIds = new Set(rawDeleted);
             if (rawState && Array.isArray(rawState.transactions)) {
               rawState.transactions = rawState.transactions
                 .filter((t: any) => {
                   if (!t || !t.id) return false;
-                  if (isCanonicalTransactionId(t.id)) return true;
                   return !deletedTestIds.has(t.id);
                 })
                 .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -432,14 +429,11 @@ export async function fetchLatestFirebaseState(): Promise<Partial<ERPState> | nu
       if (data && data.state) {
         const rawState: any = typeof data.state === 'string' ? JSON.parse(data.state) : { ...data.state };
         const rawDeleted = Array.isArray(rawState.deletedEntityIds) ? rawState.deletedEntityIds : [];
-        const deletedTestIds = new Set(rawDeleted.filter((id: string) => !isCanonicalTransactionId(id)));
-        deletedTestIds.add('tx-1790749015154');
-        deletedTestIds.add('tx-1790748931615');
+        const deletedTestIds = new Set(rawDeleted);
         if (rawState && Array.isArray(rawState.transactions)) {
           rawState.transactions = rawState.transactions
             .filter((t: any) => {
               if (!t || !t.id) return false;
-              if (isCanonicalTransactionId(t.id)) return true;
               return !deletedTestIds.has(t.id);
             })
             .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
